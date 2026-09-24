@@ -593,8 +593,6 @@ private struct ClipboardCard: View {
     let selected: Bool
     let hovered: Bool
     let shortcut: Int?
-    @State private var loadedImage: NSImage? = nil
-    @State private var imageLoaded = false
 
     private var kind: ClipKind { entry.clipKind }
 
@@ -631,12 +629,6 @@ private struct ClipboardCard: View {
         )
         .shadow(color: selected ? headerColor.opacity(0.25) : t.cardShadow,
                 radius: selected ? 10 : 4, y: selected ? 4 : 2)
-        .task(id: entry.id) {
-            if entry.imageFilename != nil && !imageLoaded {
-                loadedImage = store.loadImage(for: entry)
-                imageLoaded = true
-            }
-        }
     }
 
     // MARK: Header
@@ -684,29 +676,23 @@ private struct ClipboardCard: View {
     @ViewBuilder private func cardBody(_ t: PasteTheme) -> some View {
         switch kind {
         case .image:
-            if let image = imageLoaded ? loadedImage : nil {
+            if let image = store.loadImage(for: entry) {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipped()
-            } else if imageLoaded {
+            } else {
                 VStack(spacing: 8) {
                     Image(systemName: "photo")
                         .font(.system(size: 26, weight: .ultraLight))
                         .foregroundColor(t.textTertiary)
-                    Text("Resim yüklenemedi")
+                    Text("Resim yüklenmedi")
                         .font(.system(size: 10))
                         .foregroundColor(t.textTertiary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(t.previewBG)
-            } else {
-                ZStack {
-                    t.previewBG
-                    ProgressView().scaleEffect(0.7)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
         case .color:
@@ -771,7 +757,7 @@ private struct ClipboardCard: View {
         HStack(spacing: 0) {
             // Metadata (char count / image size)
             Group {
-                if kind == .image, let img = loadedImage {
+                if kind == .image, let img = store.loadImage(for: entry) {
                     let w = Int(img.size.width), h = Int(img.size.height)
                     Text("\(w) × \(h)")
                 } else if kind != .image {
