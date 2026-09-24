@@ -688,7 +688,7 @@ private struct ClipboardCard: View {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-                    .frame(width: 200)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipped()
             } else if imageLoaded {
                 VStack(spacing: 8) {
