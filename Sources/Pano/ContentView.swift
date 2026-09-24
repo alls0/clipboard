@@ -209,24 +209,61 @@ struct ContentView: View {
     // MARK: - Shelf Bar
 
     private func shelfBar(_ t: PasteTheme) -> some View {
+        VStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    shelfPill(.history, title: "Geçmiş", icon: "clock.arrow.circlepath", color: nil, count: store.entries.count, t)
+                    shelfPill(.favorites, title: "Favoriler", icon: "star.fill", color: 0xF5A623, count: store.entries.filter(\.isPinned).count, t)
+                    ForEach(store.pinboards) { board in
+                        shelfPill(.board(board.id), title: board.name, icon: nil, color: board.colorHex,
+                                  count: store.entries.filter { $0.pinboardIDs.contains(board.id) }.count, t)
+                            .contextMenu {
+                                Button("Koleksiyonu düzenle…") { openBoardEditor(board) }
+                                Button("Koleksiyonu kaldır…", role: .destructive) { boardToDelete = board }
+                            }
+                    }
+                    Button { openBoardEditor(nil) } label: {
+                        Image(systemName: "plus").font(.system(size: 11, weight: .medium)).foregroundColor(t.textTertiary)
+                            .frame(width: 28, height: 28).background(t.pillBG, in: Circle())
+                    }.buttonStyle(.plain).help("Yeni koleksiyon · ⇧⌘N").accessibilityLabel("Yeni koleksiyon")
+                }.padding(.horizontal, 22)
+            }.frame(height: 40)
+            kindFilterBar(t)
+        }
+    }
+
+    // MARK: - Kind Filter Bar
+
+    private func kindFilterBar(_ t: PasteTheme) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                shelfPill(.history, title: "Geçmiş", icon: "clock.arrow.circlepath", color: nil, count: store.entries.count, t)
-                shelfPill(.favorites, title: "Favoriler", icon: "star.fill", color: 0xF5A623, count: store.entries.filter(\.isPinned).count, t)
-                ForEach(store.pinboards) { board in
-                    shelfPill(.board(board.id), title: board.name, icon: nil, color: board.colorHex,
-                              count: store.entries.filter { $0.pinboardIDs.contains(board.id) }.count, t)
-                        .contextMenu {
-                            Button("Koleksiyonu düzenle…") { openBoardEditor(board) }
-                            Button("Koleksiyonu kaldır…", role: .destructive) { boardToDelete = board }
-                        }
+                kindFilterPill(nil, label: "Tümü", symbol: "square.grid.2x2", color: t.textSecondary, t)
+                ForEach(ClipKind.allCases) { kind in
+                    kindFilterPill(kind, label: kind.title, symbol: kind.symbol, color: kind.tint, t)
                 }
-                Button { openBoardEditor(nil) } label: {
-                    Image(systemName: "plus").font(.system(size: 11, weight: .medium)).foregroundColor(t.textTertiary)
-                        .frame(width: 28, height: 28).background(t.pillBG, in: Circle())
-                }.buttonStyle(.plain).help("Yeni koleksiyon · ⇧⌘N").accessibilityLabel("Yeni koleksiyon")
             }.padding(.horizontal, 22)
-        }.frame(height: 40)
+        }.frame(height: 36)
+    }
+
+    private func kindFilterPill(_ kind: ClipKind?, label: String, symbol: String, color: Color, _ t: PasteTheme) -> some View {
+        let active = kindFilter == kind
+        return Button {
+            kindFilter = (active && kind != nil) ? nil : kind
+            selectedID = nil
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: symbol)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(active ? color : t.textTertiary)
+                Text(label)
+                    .font(.system(size: 10, weight: active ? .semibold : .medium))
+                    .foregroundColor(active ? t.textPrimary : t.textSecondary)
+            }
+            .padding(.horizontal, 9)
+            .frame(height: 24)
+            .background(active ? color.opacity(0.15) : t.pillBG, in: Capsule())
+            .overlay(Capsule().stroke(active ? color.opacity(0.4) : Color.clear, lineWidth: 1))
+        }.buttonStyle(.plain)
     }
 
     private func shelfPill(_ target: Shelf, title: String, icon: String?, color: UInt32?, count: Int, _ t: PasteTheme) -> some View {
@@ -260,8 +297,13 @@ struct ContentView: View {
                         .scaleEffect(hoveredID == entry.id ? 1.03 : 1.0)
                         .animation(.easeOut(duration: 0.15), value: hoveredID)
                         .onHover { isHovered in hoveredID = isHovered ? entry.id : nil }
-                        .onTapGesture(count: 2) { interaction.copyAndReturn(entry) }
-                        .onTapGesture { selectedID = entry.id; searchFocused = false }
+                        // Fix: use simultaneous gestures to avoid 350 ms double-tap wait
+                        .gesture(
+                            TapGesture(count: 2).onEnded { interaction.copyAndReturn(entry) }
+                        )
+                        .simultaneousGesture(
+                            TapGesture(count: 1).onEnded { selectedID = entry.id; searchFocused = false }
+                        )
                         .contextMenu { entryMenu(entry) }
                         .id(entry.id)
                         .accessibilityElement(children: .combine)
@@ -555,9 +597,14 @@ private struct ClipboardCard: View {
     var body: some View {
         let t = theme
         VStack(alignment: .leading, spacing: 0) {
-            cardContent(t)
-                .frame(width: 200, height: 160)
-                .clipped()
+            ZStack(alignment: .topTrailing) {
+                cardContent(t)
+                    .frame(width: 200, height: 160)
+                    .clipped()
+                // Kind badge: top-right corner
+                kindBadge(t)
+                    .padding(7)
+            }
             HStack(spacing: 5) {
                 SourceAppIcon(bundleID: entry.sourceBundleIdentifier, fallback: entry.clipKind.symbol).frame(width: 14, height: 14)
                 Text(entry.sourceApp).lineLimit(1)
@@ -582,6 +629,17 @@ private struct ClipboardCard: View {
             lineWidth: selected ? 2 : 0.5
         ))
         .shadow(color: selected ? t.accent.opacity(0.15) : t.cardShadow, radius: selected ? 8 : 4, y: 2)
+    }
+
+    @ViewBuilder private func kindBadge(_ t: PasteTheme) -> some View {
+        let kind = entry.clipKind
+        Image(systemName: kind.symbol)
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundColor(kind.tint)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 5))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(kind.tint.opacity(0.3), lineWidth: 0.5))
     }
 
     @ViewBuilder private func cardContent(_ t: PasteTheme) -> some View {
