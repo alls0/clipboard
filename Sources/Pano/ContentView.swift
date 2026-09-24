@@ -596,41 +596,41 @@ private struct ClipboardCard: View {
     @State private var loadedImage: NSImage? = nil
     @State private var imageLoaded = false
 
+    private var kind: ClipKind { entry.clipKind }
+
+    // Vibrant per-type header colors (matching Paste app palette)
+    private var headerColor: Color {
+        switch kind {
+        case .text:  return Color(hex: 0x3B82F6)   // blue
+        case .link:  return Color(hex: 0x10B981)   // emerald
+        case .code:  return Color(hex: 0x8B5CF6)   // violet
+        case .color: return Color(hex: 0xF59E0B)   // amber
+        case .image: return Color(hex: 0xEF4444)   // red
+        }
+    }
+
     var body: some View {
         let t = theme
-        VStack(alignment: .leading, spacing: 0) {
-            ZStack(alignment: .topTrailing) {
-                cardContent(t)
-                    .frame(width: 200, height: 160)
-                    .clipped()
-                // Kind badge: top-right corner
-                kindBadge(t)
-                    .padding(7)
-            }
-            HStack(spacing: 5) {
-                SourceAppIcon(bundleID: entry.sourceBundleIdentifier, fallback: entry.clipKind.symbol).frame(width: 14, height: 14)
-                Text(entry.sourceApp).lineLimit(1)
-                Spacer(minLength: 4)
-                if entry.isPinned { Image(systemName: "star.fill").foregroundColor(Color(hex: 0xF5A623)).font(.system(size: 8)) }
-                if !entry.pinboardIDs.isEmpty { Image(systemName: "pin.fill").font(.system(size: 8)) }
-                TimelineView(.periodic(from: .now, by: 60)) { _ in Text(entry.relativeTime).foregroundColor(t.textTertiary) }
-            }.font(.system(size: 9)).foregroundColor(t.textSecondary).padding(.horizontal, 12).frame(height: 32)
-            if let shortcut {
-                HStack { Spacer()
-                    Text("⌘\(shortcut)").font(.system(size: 8, weight: .medium, design: .monospaced))
-                        .foregroundColor(t.textTertiary).padding(.horizontal, 5).padding(.vertical, 2)
-                        .background(t.pillBG, in: RoundedRectangle(cornerRadius: 3))
-                }.padding(.horizontal, 10).padding(.bottom, 6).frame(height: 28)
-            } else { Spacer().frame(height: 28) }
+        VStack(spacing: 0) {
+            // ── Colored header strip ──────────────────────────────
+            cardHeader(t)
+            // ── Content body ─────────────────────────────────────
+            cardBody(t)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+            // ── Footer: metadata + shortcut ───────────────────────
+            cardFooter(t)
         }
         .frame(width: 200, height: 220)
         .background(t.cardBG)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(
-            selected ? t.accent : (hovered ? t.cardHoverBorder : t.cardBorder),
-            lineWidth: selected ? 2 : 0.5
-        ))
-        .shadow(color: selected ? t.accent.opacity(0.15) : t.cardShadow, radius: selected ? 8 : 4, y: 2)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(selected ? headerColor : (hovered ? t.cardHoverBorder : t.cardBorder),
+                        lineWidth: selected ? 2 : 0.5)
+        )
+        .shadow(color: selected ? headerColor.opacity(0.25) : t.cardShadow,
+                radius: selected ? 10 : 4, y: selected ? 4 : 2)
         .task(id: entry.id) {
             if entry.imageFilename != nil && !imageLoaded {
                 loadedImage = store.loadImage(for: entry)
@@ -639,72 +639,190 @@ private struct ClipboardCard: View {
         }
     }
 
-    @ViewBuilder private func kindBadge(_ t: PasteTheme) -> some View {
-        let kind = entry.clipKind
-        Image(systemName: kind.symbol)
-            .font(.system(size: 9, weight: .semibold))
-            .foregroundColor(kind.tint)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 5))
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(kind.tint.opacity(0.3), lineWidth: 0.5))
+    // MARK: Header
+    @ViewBuilder private func cardHeader(_ t: PasteTheme) -> some View {
+        ZStack {
+            // Gradient background
+            LinearGradient(
+                colors: [headerColor, headerColor.opacity(0.80)],
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            )
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 5) {
+                        Image(systemName: kind.symbol)
+                            .font(.system(size: 10, weight: .semibold))
+                        Text(entry.label ?? kind.title)
+                            .font(.system(size: 11, weight: .bold))
+                            .lineLimit(1)
+                    }
+                    TimelineView(.periodic(from: .now, by: 60)) { _ in
+                        Text(entry.relativeTime)
+                            .font(.system(size: 9))
+                            .opacity(0.80)
+                    }
+                }
+                .foregroundColor(.white)
+                .padding(.leading, 12)
+                Spacer(minLength: 6)
+                // Source app icon — right side of header
+                ZStack {
+                    Circle()
+                        .fill(.white.opacity(0.20))
+                        .frame(width: 28, height: 28)
+                    SourceAppIcon(bundleID: entry.sourceBundleIdentifier,
+                                  fallback: kind.symbol)
+                        .frame(width: 18, height: 18)
+                }
+                .padding(.trailing, 10)
+            }
+        }
+        .frame(height: 52)
     }
 
-    @ViewBuilder private func cardContent(_ t: PasteTheme) -> some View {
-        switch entry.clipKind {
+    // MARK: Body
+    @ViewBuilder private func cardBody(_ t: PasteTheme) -> some View {
+        switch kind {
         case .image:
-            if let image = imageLoaded ? loadedImage : store.loadImage(for: entry) {
-                ZStack {
-                    t.previewBG
-                    Image(nsImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .padding(6)
-                }
-                .frame(width: 200, height: 160)
-                .clipped()
+            if let image = imageLoaded ? loadedImage : nil {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 200)
+                    .clipped()
             } else if imageLoaded {
-                // Image file missing after async load
                 VStack(spacing: 8) {
-                    Image(systemName: "photo").font(.system(size: 28, weight: .light)).foregroundColor(entry.clipKind.tint.opacity(0.5))
-                    Text("Resim yüklenemedi").font(.system(size: 10)).foregroundColor(t.textTertiary)
-                }.frame(width: 200, height: 160)
+                    Image(systemName: "photo")
+                        .font(.system(size: 26, weight: .ultraLight))
+                        .foregroundColor(t.textTertiary)
+                    Text("Resim yüklenemedi")
+                        .font(.system(size: 10))
+                        .foregroundColor(t.textTertiary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(t.previewBG)
             } else {
-                // Still loading — show shimmer placeholder
                 ZStack {
                     t.previewBG
-                    ProgressView().scaleEffect(0.6)
-                }.frame(width: 200, height: 160)
-            }
-        case .color:
-            VStack(alignment: .leading, spacing: 8) {
-                RoundedRectangle(cornerRadius: 8).fill(Color(hex: entry.colorValue ?? 0)).frame(maxWidth: .infinity, minHeight: 50)
-                Text(entry.text.trimmingCharacters(in: .whitespacesAndNewlines).uppercased())
-                    .font(.system(size: 18, weight: .bold, design: .monospaced)).foregroundColor(t.colorLabel)
-                if let label = entry.label { Text(label).font(.system(size: 10)).foregroundColor(t.textSecondary).lineLimit(1) }
-            }.padding(12)
-        case .link:
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Image(systemName: "link").font(.system(size: 18, weight: .light)).foregroundColor(entry.clipKind.tint)
-                    Spacer()
-                    Image(systemName: "arrow.up.right").font(.system(size: 10)).foregroundColor(t.textTertiary)
+                    ProgressView().scaleEffect(0.7)
                 }
-                Text(entry.cardTitle).font(.system(size: 13, weight: .semibold)).foregroundColor(t.textPrimary).lineLimit(2)
-                Text(entry.text).font(.system(size: 10)).foregroundColor(t.textSecondary).lineLimit(3)
-            }.padding(12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
+        case .color:
+            VStack(alignment: .leading, spacing: 10) {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(hex: entry.colorValue ?? 0))
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .shadow(color: Color(hex: entry.colorValue ?? 0).opacity(0.4), radius: 6, y: 3)
+                Text(entry.text.trimmingCharacters(in: .whitespacesAndNewlines).uppercased())
+                    .font(.system(size: 15, weight: .bold, design: .monospaced))
+                    .foregroundColor(t.colorLabel)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+        case .link:
+            VStack(alignment: .leading, spacing: 7) {
+                Text(entry.cardTitle)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(t.textPrimary)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                Text(entry.text)
+                    .font(.system(size: 9))
+                    .foregroundColor(t.textTertiary)
+                    .lineLimit(2)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
         case .code:
-            Text(entry.text.prefix(500)).font(.system(size: 10, design: .monospaced)).lineSpacing(3)
-                .foregroundColor(t.codeColor).lineLimit(9).padding(12)
+            ScrollView(.vertical, showsIndicators: false) {
+                Text(entry.text.prefix(600))
+                    .font(.system(size: 9.5, design: .monospaced))
+                    .lineSpacing(3)
+                    .foregroundColor(t.codeColor)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+            }
+
         case .text:
-            VStack(alignment: .leading, spacing: 6) {
-                if let label = entry.label { Text(label).font(.system(size: 13, weight: .semibold)).foregroundColor(t.textPrimary).lineLimit(2) }
-                Text(entry.text.prefix(500)).font(.system(size: 12)).lineSpacing(4)
-                    .foregroundColor(t.textSecondary).lineLimit(entry.label == nil ? 8 : 6).frame(maxWidth: .infinity, alignment: .leading)
-            }.padding(12)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(entry.text.prefix(400))
+                    .font(.system(size: 11.5))
+                    .lineSpacing(4)
+                    .foregroundColor(t.textSecondary)
+                    .lineLimit(7)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+
+    // MARK: Footer
+    @ViewBuilder private func cardFooter(_ t: PasteTheme) -> some View {
+        HStack(spacing: 0) {
+            // Metadata (char count / image size)
+            Group {
+                if kind == .image, let img = loadedImage {
+                    let w = Int(img.size.width), h = Int(img.size.height)
+                    Text("\(w) × \(h)")
+                } else if kind != .image {
+                    Text("\(entry.text.count) karakter")
+                } else {
+                    Text("")
+                }
+            }
+            .font(.system(size: 9, design: .rounded))
+            .foregroundColor(t.textTertiary)
+            .padding(.leading, 12)
+
+            Spacer(minLength: 4)
+
+            // Pin / Board indicators
+            if entry.isPinned {
+                Image(systemName: "star.fill")
+                    .font(.system(size: 8))
+                    .foregroundColor(Color(hex: 0xF5A623))
+                    .padding(.trailing, 4)
+            }
+            if !entry.pinboardIDs.isEmpty {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 8))
+                    .foregroundColor(t.textTertiary)
+                    .padding(.trailing, 4)
+            }
+
+            // ⌘N shortcut badge
+            if let shortcut {
+                Text("⌘\(shortcut)")
+                    .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 3)
+                    .background(headerColor.opacity(0.75), in: RoundedRectangle(cornerRadius: 4))
+                    .padding(.trailing, 10)
+            } else {
+                Spacer().frame(width: 10)
+            }
+        }
+        .frame(height: 32)
+        .background(t.cardBG)
+        .overlay(alignment: .top) {
+            Divider().opacity(0.5)
         }
     }
 }
+
+
+
 
 // MARK: - Source App Icon
 
