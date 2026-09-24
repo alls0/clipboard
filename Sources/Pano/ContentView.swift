@@ -593,6 +593,8 @@ private struct ClipboardCard: View {
     let selected: Bool
     let hovered: Bool
     let shortcut: Int?
+    @State private var loadedImage: NSImage? = nil
+    @State private var imageLoaded = false
 
     var body: some View {
         let t = theme
@@ -629,6 +631,12 @@ private struct ClipboardCard: View {
             lineWidth: selected ? 2 : 0.5
         ))
         .shadow(color: selected ? t.accent.opacity(0.15) : t.cardShadow, radius: selected ? 8 : 4, y: 2)
+        .task(id: entry.id) {
+            if entry.imageFilename != nil && !imageLoaded {
+                loadedImage = store.loadImage(for: entry)
+                imageLoaded = true
+            }
+        }
     }
 
     @ViewBuilder private func kindBadge(_ t: PasteTheme) -> some View {
@@ -645,7 +653,7 @@ private struct ClipboardCard: View {
     @ViewBuilder private func cardContent(_ t: PasteTheme) -> some View {
         switch entry.clipKind {
         case .image:
-            if let image = store.loadImage(for: entry) {
+            if let image = imageLoaded ? loadedImage : store.loadImage(for: entry) {
                 ZStack {
                     t.previewBG
                     Image(nsImage: image)
@@ -655,10 +663,17 @@ private struct ClipboardCard: View {
                 }
                 .frame(width: 200, height: 160)
                 .clipped()
-            } else {
+            } else if imageLoaded {
+                // Image file missing after async load
                 VStack(spacing: 8) {
                     Image(systemName: "photo").font(.system(size: 28, weight: .light)).foregroundColor(entry.clipKind.tint.opacity(0.5))
                     Text("Resim yüklenemedi").font(.system(size: 10)).foregroundColor(t.textTertiary)
+                }.frame(width: 200, height: 160)
+            } else {
+                // Still loading — show shimmer placeholder
+                ZStack {
+                    t.previewBG
+                    ProgressView().scaleEffect(0.6)
                 }.frame(width: 200, height: 160)
             }
         case .color:
